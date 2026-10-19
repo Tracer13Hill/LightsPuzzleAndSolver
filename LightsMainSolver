@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Adaptive Grid Puzzle</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1e1e1e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        #canvas-container {
+            width: 95vw;
+            height: 95vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        canvas {
+            background-color: #2a2a2a;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: block;
+            touch-action: none;
+            border-radius: 8px;
+        }
+        .ui-btn {
+            position: absolute;
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            user-select: none;
+            z-index: 10;
+        }
+        .ui-btn:active {
+            background-color: #444;
+        }
+        #edit-btn {
+            top: 10px;
+            right: 10px;
+        }
+        #edit-btn.active {
+            background-color: #855;
+            border-color: #a77;
+        }
+        .solver-group {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 5px;
+            z-index: 10;
+        }
+        .solver-btn {
+            position: static;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="puzzleCanvas"></canvas>
+        <button id="edit-btn" class="ui-btn">Edit: OFF</button>
+        <div class="solver-group">
+            <button id="solve-off-btn" class="ui-btn solver-btn">Solve: Off</button>
+            <button id="solve-on-btn" class="ui-btn solver-btn">Solve: On</button>
+            <button id="solve-center-btn" class="ui-btn solver-btn">Solve: Center</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('puzzleCanvas');
+        const ctx = canvas.getContext('2d');
+        const editBtn = document.getElementById('edit-btn');
+        const solveOffBtn = document.getElementById('solve-off-btn');
+        const solveOnBtn = document.getElementById('solve-on-btn');
+        const solveCenterBtn = document.getElementById('solve-center-btn');
+
+        let boardSize = 0;
+        let cellSize = 0;
+        let editMode = false;
+        let highlightedClicks = new Set(); // Stores string keys "r,c" of circles to highlight
+
+        let states = [
+            [undefined, 0, undefined, 0, undefined, 0, undefined],
+            [0, 0, 0, 0, 0, 0, 0],
+            [undefined, 0, 0, 0, 0, undefined, undefined],
+            [0, 0, 0, 0, 0, 0, 0],
+            [undefined, undefined, 0, 0, 0, 0, undefined],
+            [0, 0, 0, 0, 0, 0, 0],
+            [undefined, 0, undefined, 0, undefined, 0, undefined]
+        ];
+
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            editMode = !editMode;
+            editBtn.classList.toggle('active', editMode);
+            editBtn.textContent = `Edit: ${editMode ? 'ON' : 'OFF'}`;
+            highlightedClicks.clear();
+            draw();
+        });
+
+        solveOffBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            solvePuzzle('off');
+        });
+
+        solveOnBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            solvePuzzle('on');
+        });
+
+        solveCenterBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            solvePuzzle('center');
+        });
+
+        function resizeCanvas() {
+            const padding = 0.95;
+            const maxDimension = Math.min(window.innerWidth * padding, window.innerHeight * padding);
+            
+            boardSize = maxDimension;
+            canvas.width = boardSize;
+            canvas.height = boardSize;
+            
+            canvas.style.width = boardSize + "px";
+            canvas.style.height = boardSize + "px";
+            
+            cellSize = boardSize / 7;
+            
+            draw();
+        }
+
+        function flipTile(row, col) {
+            if (states[row][col] === undefined) return;
+
+            const key = `${row},${col}`;
+            // If this specific tile was highlighted, clear only this highlight. 
+            // If it wasn't highlighted, it's an unrecommended move, so clear all highlights.
+            if (highlightedClicks.has(key)) {
+                highlightedClicks.delete(key);
+            } else {
+                highlightedClicks.clear();
+            }
+
+            if (editMode) {
+                states[row][col] = 1 - states[row][col];
+                return;
+            }
+
+            const directions = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]];
+
+            for (let i = 0; i < directions.length; i++) {
+                let r = row + directions[i][0];
+                let c = col + directions[i][1];
+
+                if (r >= 0 && r < 7 && c >= 0 && c < 7) {
+                    if (states[r][c] !== undefined) {
+                        states[r][c] = 1 - states[r][c];
+                    }
+                }
+            }
+        }
+
+        function handleInput(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            
+            const canvasX = clientX - rect.left;
+            const canvasY = clientY - rect.top;
+
+            const col = Math.floor(canvasX / cellSize);
+            const row = Math.floor(canvasY / cellSize);
+
+            if (row >= 0 && row < 7 && col >= 0 && col < 7) {
+                flipTile(row, col);
+                draw();
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            handleInput(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            if (e.touches.length > 0) {
+                handleInput(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function solvePuzzle(targetMode) {
+            highlightedClicks.clear();
+
+            let cells = [];
+            for (let r = 0; r < 7; r++) {
+                for (let c = 0; c < 7; c++) {
+                    if (states[r][c] !== undefined) {
+                        cells.push({r, c, index: cells.length});
+                    }
+                }
+            }
+
+            const n = cells.length;
+            if (n === 0) return;
+
+            let matrix = [];
+            for (let i = 0; i < n; i++) {
+                let rowEq = new Array(n + 1).fill(0);
+                let targetR = cells[i].r;
+                let targetC = cells[i].c;
+
+                // In this app: 0 = goldenrod (on), 1 = black (off)
+                // Therefore:
+                // 'off' target means all circles should be 1 (black)
+                // 'on' target means all circles should be 0 (goldenrod)
+                // 'center' target means center circle is 0 (goldenrod) and all other circles are 1 (black)
+                let desiredVal = 1; // default to black (off)
+                if (targetMode === 'off') {
+                    desiredVal = 1; // black
+                } else if (targetMode === 'on') {
+                    desiredVal = 0; // goldenrod
+                } else if (targetMode === 'center') {
+                    desiredVal = (targetR === 3 && targetC === 3) ? 0 : 1;
+                }
+
+                // Required flip sum = current state XOR desired state
+                rowEq[n] = states[targetR][targetC] ^ desiredVal;
+
+                for (let j = 0; j < n; j++) {
+                    let btnR = cells[j].r;
+                    let btnC = cells[j].c;
+
+                    let dr = Math.abs(targetR - btnR);
+                    let dc = Math.abs(targetC - btnC);
+                    if ((dr === 0 && dc === 0) || (dr + dc === 1)) {
+                        rowEq[j] = 1;
+                    }
+                }
+                matrix.push(rowEq);
+            }
+
+            // Gaussian elimination over GF(2)
+            let row = 0;
+            let col = 0;
+            let pivotRows = new Array(n).fill(-1);
+
+            while (row < n && col < n) {
+                let sel = row;
+                while (sel < n && matrix[sel][col] === 0) {
+                    sel++;
+                }
+                if (sel === n) {
+                    col++;
+                    continue;
+                }
+
+                let temp = matrix[sel];
+                matrix[sel] = matrix[row];
+                matrix[row] = temp;
+
+                pivotRows[col] = row;
+
+                for (let i = 0; i < n; i++) {
+                    if (i !== row && matrix[i][col] === 1) {
+                        for (let k = col; k <= n; k++) {
+                            matrix[i][k] ^= matrix[row][k];
+                        }
+                    }
+                }
+
+                row++;
+                col++;
+            }
+
+            let solution = new Array(n).fill(0);
+            for (let c = 0; c < n; c++) {
+                let r = pivotRows[c];
+                if (r !== -1) {
+                    solution[c] = matrix[r][n];
+                }
+            }
+
+            // Populate highlights for solution clicks
+            for (let i = 0; i < n; i++) {
+                if (solution[i] === 1) {
+                    highlightedClicks.add(`${cells[i].r},${cells[i].c}`);
+                }
+            }
+
+            draw();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, boardSize, boardSize);
+
+            ctx.strokeStyle = '#444444';
+            ctx.lineWidth = Math.max(1, boardSize / 300);
+            for (let i = 1; i < 7; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * cellSize, 0);
+                ctx.lineTo(i * cellSize, boardSize);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(0, i * cellSize);
+                ctx.lineTo(boardSize, i * cellSize);
+                ctx.stroke();
+            }
+
+            for (let r = 0; r < 7; r++) {
+                for (let c = 0; c < 7; c++) {
+                    if (states[r][c] !== undefined) {
+                        const centerX = (c + 0.5) * cellSize;
+                        const centerY = (r + 0.5) * cellSize;
+                        
+                        const radius = cellSize * 0.43;
+
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                        
+                        if (states[r][c] === 0) {
+                            ctx.fillStyle = 'goldenrod';
+                        } else {
+                            ctx.fillStyle = 'black';
+                        }
+                        
+                        ctx.fill();
+                        
+                        if (states[r][c] === 1) {
+                            ctx.strokeStyle = '#555555';
+                            ctx.lineWidth = 1;
+                            ctx.stroke();
+                        }
+
+                        // Highlight mechanism for solver
+                        if (highlightedClicks.has(`${r},${c}`)) {
+                            ctx.beginPath();
+                            ctx.arc(centerX, centerY, radius * 0.75, 0, 2 * Math.PI);
+                            ctx.strokeStyle = '#00ffff';
+                            ctx.lineWidth = Math.max(2, boardSize / 150);
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+        }
+
+        resizeCanvas();
+    </script>
+</body>
+</html>
